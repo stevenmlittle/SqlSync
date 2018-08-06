@@ -2,10 +2,13 @@ package steven.Sync;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -17,7 +20,7 @@ public class Main extends JavaPlugin {
 	public Commands commands = new Commands();
 	public Economy economy = null;
 	public ConfigManager cfgm;
-	public PlayerInfo pInfo;
+	private int minutes = 0;
 	public Manager man;
 	public Connection connection;
 	public String host, database, username, password, table = "data";
@@ -28,9 +31,10 @@ public class Main extends JavaPlugin {
 		//getCommand(commands.cmd1).setExecutor(commands);
 		getServer().getConsoleSender().sendMessage(ChatColor.GREEN + "MySQL sync is enabled!");
 		getServer().getPluginManager().registerEvents(new EventsClass(), this);
-		setupSQL();
 		loadConfigManager();
+		setupSQL();
 		setupEconomy();
+		timer();
 	}
 	
 	public void onDisable() {
@@ -49,9 +53,9 @@ public class Main extends JavaPlugin {
 		cfgm.reloadGuildItems();*/
 	}
 	
-	public void playerInfo() {
+	/*public void playerInfo() {
 		pInfo = new PlayerInfo();
-	}
+	}*/
 	
 	public void Manager() {
 		man = new Manager();
@@ -72,15 +76,18 @@ public class Main extends JavaPlugin {
 				auct.timer();*/
 				
 				if (Ticks % 20 == 0) {   //every 1 seconds
-					pInfo.playtime();
+					playtime();
 				}
 				/*if (Ticks % 39 == 0) {	//every 1.9 seconds
 					utils.emmyRemove();
-				}
-				if (Ticks % 200 == 0) { //every 10 seconds
-					if (getConfig().getBoolean("FeatherFly"))
-						utils.featherRemove();
 				}*/
+				if (Ticks % 1200 == 0) { //every 1 minute
+					minutes++;
+					if (minutes == 3) {
+						saveData();
+						minutes = 0;
+					}
+				}
 				else if (Ticks == 2000) { //every 100 seconds and reset timer
 					Ticks = 0;
 				}
@@ -128,5 +135,66 @@ public class Main extends JavaPlugin {
 	
 	public void setConnection(Connection connection) {
 		this.connection = connection;
+	}
+	
+	public void playtime() {
+		for (Player player : Bukkit.getServer().getOnlinePlayers()) {
+			if (playerExists(player)) {
+				try {
+					PreparedStatement statement = getConnection().prepareStatement("SELECT * FROM " + table + " WHERE UUID=?");
+					statement.setString(1, player.getUniqueId().toString());
+					ResultSet results = statement.executeQuery();
+					results.next();
+					int playtime = results.getInt("PLAYTIME");
+					playtime++;
+					
+					PreparedStatement insert = getConnection().prepareStatement("UPDATE " + table + " SET PLAYTIME = ? WHERE UUID = ?");
+					insert.setInt(1, playtime);
+					insert.setString(2, player.getUniqueId().toString());
+					insert.executeUpdate();
+					insert.close();
+				}
+				catch (SQLException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+	
+	public void saveData() {
+		for (Player player : Bukkit.getServer().getOnlinePlayers()) {
+			try {
+				PreparedStatement statement = getConnection().prepareStatement("SELECT * FROM " + table + " WHERE UUID=?");
+				statement.setString(1, player.getUniqueId().toString());
+				ResultSet results = statement.executeQuery();
+				results.next();
+				int playtime = results.getInt("PLAYTIME");
+				
+				PreparedStatement insert = getConnection().prepareStatement("UPDATE " + table + " SET BALANCE = ?, PLAYTIME = ? WHERE UUID = ?");
+				insert.setDouble(1, results.getDouble("BALANCE"));
+				insert.setInt(2, playtime++);
+				insert.setString(3, results.getString("UUID"));
+				insert.executeUpdate();
+				insert.close();
+			}
+			catch (SQLException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	
+	public boolean playerExists(Player player) {
+		try {
+			PreparedStatement statement = getConnection().prepareStatement("SELECT * FROM " + table + " WHERE UUID = ?");
+			statement.setString(1, player.getUniqueId().toString());
+			ResultSet results = statement.executeQuery();
+			boolean hasData = results.next();
+			if (hasData)
+				return true;
+		} 
+		catch (SQLException e) {
+			e.printStackTrace();
+		}
+		return false;
 	}
 }

@@ -1,5 +1,5 @@
 name: VitalsSQLSync
 author: stevenmlittle
 version: 1.0
-main: steve.Sync.Main
+main: steven.Sync.Main
 description: Sql to handle data
