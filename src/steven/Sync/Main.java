@@ -1,5 +1,7 @@
 package steven.Sync;
 
+import java.io.File;
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -8,24 +10,27 @@ import java.sql.SQLException;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.milkbowl.vault.economy.Economy;
+import net.milkbowl.vault.permission.Permission;
 
 public class Main extends JavaPlugin {
 	
 	public Commands commands = new Commands();
 	public Economy economy = null;
-	public ConfigManager cfgm;
 	private int minutes = 0;
 	public Manager man;
 	public Connection connection;
 	public String host, database, username, password, table = "data";
 	public int port;
 	private int Ticks = 0;
+	public Permission permission = null;
 	
 	public void onEnable() {
 		//getCommand(commands.cmd1).setExecutor(commands);
@@ -34,6 +39,7 @@ public class Main extends JavaPlugin {
 		loadConfigManager();
 		setupSQL();
 		setupEconomy();
+		setupPermissions();
 		timer();
 	}
 	
@@ -44,13 +50,10 @@ public class Main extends JavaPlugin {
 	public void loadConfigManager() {
 		getConfig().options().copyDefaults(true);
 		saveConfig();
-		/*cfgm = new ConfigManager();
-		cfgm.setupPlayersGuilds();
-		cfgm.savePlayersGuilds();
-		cfgm.reloadPlayersGuilds();
-		cfgm.setupGuildItem();
-		cfgm.saveGuildItems();
-		cfgm.reloadGuildItems();*/
+		setup();
+		getPlaytime();
+		savePlaytime();
+		reloadPlaytime();
 	}
 	
 	/*public void playerInfo() {
@@ -76,7 +79,12 @@ public class Main extends JavaPlugin {
 				auct.timer();*/
 				
 				if (Ticks % 20 == 0) {   //every 1 seconds
-					playtime();
+					for (Player player : Bukkit.getServer().getOnlinePlayers()) {
+						int time = getPlaytime().getInt(player.getUniqueId().toString() + ".time");
+						time++;
+						getPlaytime().set(player.getUniqueId().toString() + ".time", time);
+					}
+					
 				}
 				/*if (Ticks % 39 == 0) {	//every 1.9 seconds
 					utils.emmyRemove();
@@ -84,8 +92,11 @@ public class Main extends JavaPlugin {
 				if (Ticks % 1200 == 0) { //every 1 minute
 					minutes++;
 					if (minutes == 3) {
-						saveData();
-						minutes = 0;
+						if (Bukkit.getServer().getOnlinePlayers().size() > 0) {
+							saveInfo();
+							minutes = 0;
+							Bukkit.getServer().getConsoleSender().sendMessage(ChatColor.GREEN + "Data Saved for " + Bukkit.getServer().getOnlinePlayers().size() + " players");
+						}
 					}
 				}
 				else if (Ticks == 2000) { //every 100 seconds and reset timer
@@ -137,20 +148,23 @@ public class Main extends JavaPlugin {
 		this.connection = connection;
 	}
 	
-	public void playtime() {
+	public void saveInfo() {
 		for (Player player : Bukkit.getServer().getOnlinePlayers()) {
+			String playerMain = getMainGroup(player), playerSub = getSubGroup(player);
 			if (playerExists(player)) {
 				try {
 					PreparedStatement statement = getConnection().prepareStatement("SELECT * FROM " + table + " WHERE UUID=?");
 					statement.setString(1, player.getUniqueId().toString());
 					ResultSet results = statement.executeQuery();
 					results.next();
-					int playtime = results.getInt("PLAYTIME");
-					playtime++;
+					int playtime = getPlaytime().getInt(player.getUniqueId().toString() + ".time");
 					
-					PreparedStatement insert = getConnection().prepareStatement("UPDATE " + table + " SET PLAYTIME = ? WHERE UUID = ?");
-					insert.setInt(1, playtime);
-					insert.setString(2, player.getUniqueId().toString());
+					PreparedStatement insert = getConnection().prepareStatement("UPDATE " + table + " SET BALANCE = ?, PLAYTIME = ?, RANK = ?, SUB = ? WHERE UUID = ?");
+					insert.setDouble(1, economy.getBalance(player));
+					insert.setInt(2, playtime++);
+					insert.setString(3, playerMain);
+					insert.setString(4, playerSub);
+					insert.setString(5, player.getUniqueId().toString());
 					insert.executeUpdate();
 					insert.close();
 				}
@@ -161,26 +175,71 @@ public class Main extends JavaPlugin {
 		}
 	}
 	
-	public void saveData() {
-		for (Player player : Bukkit.getServer().getOnlinePlayers()) {
-			try {
-				PreparedStatement statement = getConnection().prepareStatement("SELECT * FROM " + table + " WHERE UUID=?");
-				statement.setString(1, player.getUniqueId().toString());
-				ResultSet results = statement.executeQuery();
-				results.next();
-				int playtime = results.getInt("PLAYTIME");
-				
-				PreparedStatement insert = getConnection().prepareStatement("UPDATE " + table + " SET BALANCE = ?, PLAYTIME = ? WHERE UUID = ?");
-				insert.setDouble(1, results.getDouble("BALANCE"));
-				insert.setInt(2, playtime++);
-				insert.setString(3, results.getString("UUID"));
-				insert.executeUpdate();
-				insert.close();
-			}
-			catch (SQLException e) {
-				e.printStackTrace();
-			}
+	private String getSubGroup(Player player) {
+		if (player.hasPermission("owner.v")) {
+			return "Owner";
 		}
+		else if (player.hasPermission("admin.v")) {
+			return "Admin";
+		}
+		else if (player.hasPermission("mod.v")) {
+			return "Mod";
+		}
+		else if (player.hasPermission("trusted.v")) {
+			return "Trusted";
+		}
+		else if (player.hasPermission("sapphire.v")) {
+			return "Sapphire";
+		}
+		else if (player.hasPermission("ruby.v")) {
+			return "Ruby";
+		}
+		else if (player.hasPermission("drangonstone.v")) {
+			return "Dragonstone";
+		}
+		else if (player.hasPermission("veteran.v")) {
+			return "Veteran";
+		}
+		else
+			return "";
+	}
+
+	private String getMainGroup(Player player) {
+		if (player.hasPermission("wanderer.v")) {
+			return "Wanderer";
+		}
+		else if (player.hasPermission("citizen.v")) {
+			return "Citizen";
+		}
+		else if (player.hasPermission("noble.v")) {
+			return "Noble";
+		}
+		else if (player.hasPermission("merchant.v")) {
+			return "Merchant";
+		}
+		else if (player.hasPermission("knight.v")) {
+			return "Knight";
+		}
+		else if (player.hasPermission("baron.v")) {
+			return "Baron";
+		}
+		else if (player.hasPermission("duke.v")) {
+			return "Duke";
+		}
+		else if (player.hasPermission("chancellor.v")) {
+			return "Chancellor";
+		}
+		else if (player.hasPermission("viceroy.v")) {
+			return "Viceroy";
+		}
+		else if (player.hasPermission("guardian.v")) {
+			return "Guardian";
+		}
+		else if (player.hasPermission("avatar.v")) {
+			return "Avatar";
+		}
+		else
+			return "Wanderer";
 	}
 	
 	public boolean playerExists(Player player) {
@@ -196,5 +255,54 @@ public class Main extends JavaPlugin {
 			e.printStackTrace();
 		}
 		return false;
+	}
+	
+	private boolean setupPermissions() {
+        RegisteredServiceProvider<Permission> permissionProvider = Bukkit.getServer().getServicesManager().getRegistration(net.milkbowl.vault.permission.Permission.class);
+        if (permissionProvider != null) {
+            permission = permissionProvider.getProvider();
+        }
+        return (permission != null);
+    }
+	
+	//files and configs here
+	public FileConfiguration playerTimeData;
+	public File playerTime;
+	
+	public void setup() {
+		if (!getDataFolder().exists()) {
+			getDataFolder().mkdir();
+		}
+		
+		playerTime = new File(getDataFolder(), "playerTime.yml");
+		
+		if (!playerTime.exists()) {
+			try {
+				playerTime.createNewFile();
+			}
+			catch(IOException e) {
+				Bukkit.getServer().getConsoleSender().sendMessage(ChatColor.RED + "Could not create the playtime.yml file");
+			}
+		}
+		
+		playerTimeData = YamlConfiguration.loadConfiguration(playerTime);
+	}
+	
+	public FileConfiguration getPlaytime() {
+		return playerTimeData;
+	}
+	
+	public void savePlaytime() {
+		try {
+			playerTimeData.save(playerTime);
+		}
+		catch (IOException e) {
+			Bukkit.getServer().getConsoleSender().sendMessage(ChatColor.RED + "Could not save the playtime.yml file");
+		}
+	}
+	
+	public void reloadPlaytime() {
+		playerTimeData = YamlConfiguration.loadConfiguration(playerTime);
+		Bukkit.getServer().getConsoleSender().sendMessage(ChatColor.GREEN + "The playtime.yml file has been reloaded");
 	}
 }

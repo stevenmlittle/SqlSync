@@ -3,3 +3,24 @@ port: 3306
 database: players
 username: root
 password: ''
+MainGroups:
+- Wanderer
+- Citizen
+- Noble
+- Merchant
+- Knight
+- Baron
+- Duke
+- Chancellor
+- Viceroy
+- Guardian
+- Avatar
+SubGroups:
+- Sapphire
+- Ruby
+- Dragonstone
+- Veteran
+- Trusted
+- Mod
+- Admin
+- Owner
